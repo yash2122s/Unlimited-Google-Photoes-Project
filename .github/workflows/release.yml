@@ -60,14 +60,26 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Run Windows tests & build standalone package
+      - name: Run core tests on Windows
         shell: pwsh
-        run: |
-          .\gradlew.bat :core:test --no-daemon
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          .\gradlew.bat :windows:test --tests dev.lantern.windows.TransferTest --no-daemon
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          .\Build-Windows.ps1 -Jdk $env:JAVA_HOME
+        run: .\gradlew.bat :core:test --no-daemon
+
+      - name: Run Windows transfer tests
+        shell: pwsh
+        run: .\gradlew.bat :windows:test --tests dev.lantern.windows.TransferTest --no-daemon
+
+      - name: Build standalone Windows x64 package
+        shell: pwsh
+        run: .\Build-Windows.ps1 -Jdk $env:JAVA_HOME
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-reports
+          path: |
+            core/build/test-results/test/
+            windows/build/test-results/test/
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
