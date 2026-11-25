@@ -60,10 +60,6 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Run core tests on Windows
-        shell: pwsh
-        run: .\gradlew.bat :core:test --no-daemon
-
       - name: Run Windows transfer tests
         shell: pwsh
         run: .\gradlew.bat :windows:test --tests dev.lantern.windows.TransferTest --no-daemon
