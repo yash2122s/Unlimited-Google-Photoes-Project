@@ -303,17 +303,37 @@ private fun probeHubTcp(target: InetAddress): Pair<String, String>? {
         null
     }
 }
-fun discoverNearby(): List<NearbyHub> = DatagramSocket().use { sock ->
-    sock.broadcast = true
-    val msg = (MAGIC+" DISCOVER").toByteArray()
+private fun discoveryUdpTargets(): List<InetAddress> {
     val interfaces = addresses()
     val group = InetAddress.getByName("ff02::1").address
     val v6 = interfaces.map { it.address }.filterIsInstance<Inet6Address>().mapNotNull {
         val nic = it.scopedInterface ?: NetworkInterface.getByInetAddress(it) ?: return@mapNotNull null
         Inet6Address.getByAddress(null,group,nic.index)
     }
-    val udpTargets = (interfaces.mapNotNull { it.broadcast } + v6 + subnetTargets()).distinctBy { it.hostAddress }
-    for (target in udpTargets) runCatching {
+    return (interfaces.mapNotNull { it.broadcast } + v6 + subnetTargets()).distinctBy { it.hostAddress }
+}
+private fun probeHubsByTcp(): Map<String, Pair<String, LinkedHashSet<String>>> {
+    val found = LinkedHashMap<String, Pair<String, LinkedHashSet<String>>>()
+    val probePool = java.util.concurrent.Executors.newFixedThreadPool(64)
+    try {
+        val futures = subnetTargets().filter { localPeer(it) }.map { target ->
+            target to probePool.submit<Pair<String, String>?> { probeHubTcp(target) }
+        }
+        for ((target, future) in futures) {
+            val res = runCatching { future.get() }.getOrNull() ?: continue
+            val host = target.hostAddress ?: continue
+            val entry = found.getOrPut(res.first) { res.second to LinkedHashSet() }
+            entry.second.add(host)
+        }
+    } finally {
+        probePool.shutdownNow()
+    }
+    return found
+}
+fun discoverNearby(): List<NearbyHub> = DatagramSocket().use { sock ->
+    sock.broadcast = true
+    val msg = (MAGIC+" DISCOVER").toByteArray()
+    for (target in discoveryUdpTargets()) runCatching {
         sock.send(DatagramPacket(msg,msg.size,target,PORT))
     }
     val found = LinkedHashMap<String, Pair<String, LinkedHashSet<String>>>()
@@ -337,22 +357,7 @@ fun discoverNearby(): List<NearbyHub> = DatagramSocket().use { sock ->
         val entry = found.getOrPut(pin) { name to LinkedHashSet() }
         entry.second.add(host)
     }
-    if (found.isEmpty()) {
-        val probePool = java.util.concurrent.Executors.newFixedThreadPool(64)
-        try {
-            val futures = subnetTargets().filter { localPeer(it) }.map { target ->
-                target to probePool.submit<Pair<String, String>?> { probeHubTcp(target) }
-            }
-            for ((target, future) in futures) {
-                val res = runCatching { future.get() }.getOrNull() ?: continue
-                val host = target.hostAddress ?: continue
-                val entry = found.getOrPut(res.first) { res.second to LinkedHashSet() }
-                entry.second.add(host)
-            }
-        } finally {
-            probePool.shutdownNow()
-        }
-    }
+    if (found.isEmpty()) found.putAll(probeHubsByTcp())
     found.map { (pin, pair) -> NearbyHub(pin, pair.first, pair.second.sortedByDescending { ':' in it }) }
         .sortedBy { it.name.lowercase() }
 }
@@ -398,14 +403,8 @@ fun requestPair(hub: NearbyHub, myName: String, onCode: (String)->Unit = {}): Li
 private fun discover(pin: String): List<String> = DatagramSocket().use { sock ->
     sock.broadcast = true
     val msg = (MAGIC+" "+pin).toByteArray()
-    val interfaces = addresses()
-    val group = InetAddress.getByName("ff02::1").address
-    val v6 = interfaces.map { it.address }.filterIsInstance<Inet6Address>().mapNotNull {
-        val nic = it.scopedInterface ?: NetworkInterface.getByInetAddress(it) ?: return@mapNotNull null
-        Inet6Address.getByAddress(null,group,nic.index)
-    }
-    for (broadcast in (interfaces.mapNotNull { it.broadcast } + v6).distinctBy { it.hostAddress }) runCatching {
-        sock.send(DatagramPacket(msg,msg.size,broadcast,PORT))
+    for (target in discoveryUdpTargets()) runCatching {
+        sock.send(DatagramPacket(msg,msg.size,target,PORT))
     }
     val found = linkedSetOf<String>()
     val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(1300)
@@ -426,6 +425,7 @@ private fun discover(pin: String): List<String> = DatagramSocket().use { sock ->
             found.add(host)
         }
     }
+    if (found.isEmpty()) probeHubsByTcp()[pin]?.second?.let { found.addAll(it) }
     if (found.isEmpty()) throw SocketTimeoutException("Hub discovery timed out")
     found.sortedByDescending { ':' in it }
 }
