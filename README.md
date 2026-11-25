@@ -75,7 +75,7 @@ All pairing methods save an ECDSA-pinned TLS credential permanently on both devi
 ### Option A — 6-Digit Pairing Code *(Easiest for Windows PC / No Webcam)*
 
 1. On the **Hub** phone, tap **Pair a device** to display `Pairing code · XXXXXX` (valid for 2 minutes).
-2. On your **Windows PC** or **Android sender** (**Send** mode), type those **6 digits** into the **`6-digit code or pairing link`** box.
+2. On your **Windows PC** or **Android sender** (**Send** mode), type those **6 digits** (or **`XXXXXX@192.168.0.121`** using the Hub's displayed Wi-Fi IP if discovery is blocked by router isolation) into the **`6-digit code, code@IP, or link`** box.
 3. Click **Connect**. Lantern discovers the Hub on your LAN (broadcast + `/24` unicast + TCP probe fallback), verifies its TLS certificate, validates the 6-digit code, and saves the pairing permanently.
 
 ### Option B — Nearby Hubs (1-Click Request + Hub Approval)

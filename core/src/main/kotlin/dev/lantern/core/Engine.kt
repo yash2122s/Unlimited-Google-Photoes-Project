@@ -59,7 +59,7 @@ class Engine(dir: File, val device: String, val tree: (String)->Tree, val online
     fun pairWith(code: String) {
         check(online()) { "Connect to the local Wi-Fi network" }
         val trimmed = code.trim()
-        val l = if (trimmed.matches(Regex("\\d{6}"))) pairByCode(trimmed, device) else pair(trimmed, device)
+        val l = if (trimmed.matches(Regex("\\d{6}(@.+)?"))) pairByCode(trimmed, device) else pair(trimmed, device)
         settings.put("pin" to l.pin,"token" to l.token,"address" to l.host,"hubName" to l.name)
         message = "Paired with "+l.name
         recordEvent(TransferEvent(System.currentTimeMillis(), "Paired with ${l.name}", l.host, true))

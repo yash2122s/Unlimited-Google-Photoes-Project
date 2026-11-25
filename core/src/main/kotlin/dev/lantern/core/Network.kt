@@ -180,7 +180,15 @@ class Identity(val book: Book, val name: String) {
 
 fun addresses(interfaceAllowed: (NetworkInterface)->Boolean = { true }): List<InterfaceAddress> = NetworkInterface.getNetworkInterfaces()?.toList().orEmpty()
     .filter { runCatching { interfaceAllowed(it) && it.isUp && !it.isLoopback && !it.isPointToPoint && !it.name.startsWith("rmnet") && !it.name.startsWith("tun") }.getOrDefault(false) }
-    .flatMap { it.interfaceAddresses }.filter { it.address.isLinkLocalAddress || (it.address is Inet4Address && it.address.isSiteLocalAddress) }.sortedByDescending { it.address is Inet6Address }
+    .sortedWith(compareBy<NetworkInterface> { isVirtualInterface(it) }
+        .thenByDescending { it.name.startsWith("wlan") || it.displayName.contains("Wi-Fi", true) || it.displayName.contains("Wireless", true) })
+    .flatMap { it.interfaceAddresses }
+    .filter { it.address.isLinkLocalAddress || (it.address is Inet4Address && it.address.isSiteLocalAddress) }
+    .sortedByDescending { it.address is Inet6Address }
+fun localLanIps(): List<String> = addresses { !isVirtualInterface(it) }
+    .mapNotNull { it.address as? Inet4Address }
+    .mapNotNull { it.hostAddress }
+    .distinct()
 private fun localPeer(ip: InetAddress): Boolean {
     if (ip.isLoopbackAddress) return true
     if (ip is Inet6Address) return ip.isLinkLocalAddress
@@ -266,13 +274,15 @@ fun pair(qr: String, myName: String): Link {
     throw IOException("Cannot reach the Hub over local Wi-Fi. Check that the Hub is listening and that this Wi-Fi allows devices to communicate.",failure)
 }
 private fun subnetTargets(): List<InetAddress> {
-    val prefixes = addresses().mapNotNull { it.address as? Inet4Address }.mapNotNull { addr ->
+    val nonVirtual = addresses { !isVirtualInterface(it) }
+    val pool = if (nonVirtual.isNotEmpty()) nonVirtual else addresses()
+    val prefixes = pool.mapNotNull { it.address as? Inet4Address }.mapNotNull { addr ->
         val raw = addr.address
         if (raw.size == 4) "${raw[0].toInt() and 255}.${raw[1].toInt() and 255}.${raw[2].toInt() and 255}" else null
     }.distinct()
     val targets = ArrayList<InetAddress>(prefixes.size * 254 + 1)
     runCatching { targets.add(InetAddress.getByName("127.0.0.1")) }
-    for (p in prefixes.take(2)) {
+    for (p in prefixes.take(4)) {
         for (i in 1..254) runCatching { targets.add(InetAddress.getByName("$p.$i")) }
     }
     return targets
@@ -287,7 +297,7 @@ private fun probeHubTcp(target: InetAddress): Pair<String, String>? {
     val socket = ctx.socketFactory.createSocket() as SSLSocket
     return try {
         socket.enabledProtocols = socket.supportedProtocols.filter { it in setOf("TLSv1.2","TLSv1.3") }.toTypedArray()
-        socket.connect(InetSocketAddress(target, PORT), 350)
+        socket.connect(InetSocketAddress(target, PORT), 250)
         socket.soTimeout = 1000
         socket.startHandshake()
         val certPin = digest(socket.session.peerCertificates.first().encoded.inputStream())
@@ -362,9 +372,22 @@ fun discoverNearby(): List<NearbyHub> = DatagramSocket().use { sock ->
         .sortedBy { it.name.lowercase() }
 }
 fun pairByCode(code: String, myName: String): Link {
-    val cleanCode = code.trim()
+    val trimmed = code.trim()
+    val hasHost = '@' in trimmed
+    val cleanCode = trimmed.substringBefore('@').trim()
+    val explicitHost = if (hasHost) trimmed.substringAfter('@').trim() else ""
     require(cleanCode.matches(Regex("\\d{6}"))) { "Enter the 6-digit pairing code shown on the Hub" }
-    val hubs = discoverNearby()
+    val hubs = if (explicitHost.isNotEmpty()) {
+        val found = LinkedHashMap<String, Pair<String, LinkedHashSet<String>>>()
+        for (target in localTargets(explicitHost)) {
+            val info = probeHubTcp(target) ?: continue
+            val host = target.hostAddress ?: continue
+            found.getOrPut(info.first) { info.second to LinkedHashSet() }.second.add(host)
+        }
+        found.map { (pin, pair) -> NearbyHub(pin, pair.first, pair.second.sortedByDescending { ':' in it }) }
+    } else {
+        discoverNearby()
+    }
     require(hubs.isNotEmpty()) { "No active Hub found on local Wi-Fi. Check that Receive as Hub is started on your phone." }
     val token = secret()
     var failure: Exception = IOException("Pairing code was not accepted")

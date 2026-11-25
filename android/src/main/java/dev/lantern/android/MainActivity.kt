@@ -19,8 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.google.zxing.*
@@ -58,7 +56,6 @@ class MainActivity: ComponentActivity() {
     }
     @Composable private fun Screen() {
         val scope = rememberCoroutineScope()
-        val clipboard = LocalClipboardManager.current
         var tick by remember { mutableIntStateOf(0) }
         var qr by remember { mutableStateOf("") }
         var copied by remember { mutableStateOf(false) }
@@ -148,7 +145,7 @@ class MainActivity: ComponentActivity() {
                                         value=linkInput,
                                         onValueChange={ linkInput=it },
                                         singleLine=true,
-                                        placeholder={ Text("6-digit code or pairing link") },
+                                        placeholder={ Text("6-digit code, code@IP, or link") },
                                         modifier=Modifier.weight(1f)
                                     )
                                     Button(enabled=linkInput.isNotBlank(),onClick={
@@ -265,12 +262,19 @@ class MainActivity: ComponentActivity() {
                 }
                 if(engine.receiving && qr.isNotEmpty()) {
                     val shortCode = engine.identity.shortInviteCode()
+                    val lanIp = localLanIps().firstOrNull()
                     if (shortCode.isNotEmpty()) {
                         Text("Pairing code · $shortCode",style=MaterialTheme.typography.headlineMedium,modifier=Modifier.align(Alignment.CenterHorizontally))
+                        if (lanIp != null) {
+                            Text("Wi-Fi IP · $lanIp · or type $shortCode@$lanIp",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.align(Alignment.CenterHorizontally))
+                        }
                     }
                     Image(remember(qr) { qrBitmap(qr).asImageBitmap() },"Pairing QR",Modifier.size(250.dp).align(Alignment.CenterHorizontally))
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp,Alignment.CenterHorizontally)) {
-                        OutlinedButton(onClick={ clipboard.setText(AnnotatedString(qr)); copied=true }) {
+                        OutlinedButton(onClick={
+                            getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("Lantern pairing link", qr))
+                            copied=true
+                        }) {
                             Text(if(copied) "Link copied" else "Copy pairing link")
                         }
                         OutlinedButton(onClick={

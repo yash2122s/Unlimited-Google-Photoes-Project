@@ -13,8 +13,9 @@ object Session {
     @Volatile private var instance: Engine? = null
     fun engine(context: Context): Engine = instance ?: synchronized(this) {
         instance ?: context.applicationContext.let { app ->
-            Engine(app.filesDir,Build.MODEL,{ SafTree(app.contentResolver,it) },{
+            Engine(app.filesDir,Build.MODEL,{ SafTree(app,app.contentResolver,it) },{
                 val mgr = app.getSystemService(ConnectivityManager::class.java)
+                @Suppress("DEPRECATION")
                 val lan = mgr.allNetworks.firstOrNull { n -> mgr.getNetworkCapabilities(n)?.let {
                     it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || it.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
                 } == true }
@@ -79,6 +80,7 @@ class LinkService: Service() {
         if (multicast == null) multicast = applicationContext.getSystemService(WifiManager::class.java)
             .createMulticastLock("Lantern:discovery").apply { acquire() }
         if (wifiLock == null) {
+            @Suppress("DEPRECATION")
             val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
             wifiLock = applicationContext.getSystemService(WifiManager::class.java).createWifiLock(mode,"Lantern:wifi").apply { acquire() }
         }

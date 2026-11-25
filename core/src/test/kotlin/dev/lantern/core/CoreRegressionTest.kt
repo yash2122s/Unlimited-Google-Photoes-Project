@@ -1069,4 +1069,33 @@ class CoreRegressionTest {
             hub.stop()
         }
     }
+
+    @Test fun directSixDigitWithHostPairsWithoutDiscovery() {
+        val dstDir = temp.newFolder("directPinDst")
+        val hubState = temp.newFolder("directPinHubState")
+        val sndState = temp.newFolder("directPinSndState")
+
+        val hub = Engine(hubState, "DirectPinHub", { LocalTree(it) }, { true })
+        val snd = Engine(sndState, "DirectPinPC", { LocalTree(it) }, { true })
+        try {
+            hub.mode(true)
+            hub.choose(dstDir.path)
+            hub.enable(true)
+
+            val deadline = System.currentTimeMillis() + 10_000
+            while (System.currentTimeMillis() < deadline && hub.message != "Listening for paired devices") {
+                Thread.sleep(50)
+            }
+            hub.identity.invite()
+            val shortCode = hub.identity.shortInviteCode()
+            snd.pairWith("$shortCode@127.0.0.1")
+            Assert.assertTrue(snd.paired)
+            Assert.assertEquals("DirectPinHub", snd.hubName)
+            Assert.assertEquals("127.0.0.1", snd.settings["address"])
+            Assert.assertTrue(hub.peers.values.any { it.contains("DirectPinPC") })
+        } finally {
+            snd.stop()
+            hub.stop()
+        }
+    }
 }

@@ -8,8 +8,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toComposeImageBitmap
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.*
@@ -93,7 +91,6 @@ fun main() {
 }
 @Composable internal fun Desktop(e: Engine, owner: java.awt.Window) {
     val scope = rememberCoroutineScope()
-    val clipboard = LocalClipboardManager.current
     var tick by remember { mutableIntStateOf(0) }
     var qr by remember { mutableStateOf("") }
     var copied by remember { mutableStateOf(false) }
@@ -200,7 +197,7 @@ fun main() {
                                     value=linkInput,
                                     onValueChange={ linkInput=it },
                                     singleLine=true,
-                                    placeholder={ Text("6-digit code or pairing link") },
+                                    placeholder={ Text("6-digit code, code@IP, or link") },
                                     modifier=Modifier.weight(1f)
                                 )
                                 Button(enabled=linkInput.isNotBlank(),onClick={
@@ -274,13 +271,20 @@ fun main() {
             }
             if(e.receiving && qr.isNotEmpty()) {
                 val shortCode = e.identity.shortInviteCode()
+                val lanIp = localLanIps().firstOrNull()
                 if (shortCode.isNotEmpty()) {
                     Text("Pairing code · $shortCode",style=MaterialTheme.typography.h5,modifier=Modifier.align(Alignment.CenterHorizontally))
+                    if (lanIp != null) {
+                        Text("Wi-Fi IP · $lanIp · or type $shortCode@$lanIp",style=MaterialTheme.typography.caption,color=Color.DarkGray,modifier=Modifier.align(Alignment.CenterHorizontally))
+                    }
                 }
                 val image=remember(qr) { MatrixToImageWriter.toBufferedImage(QRCodeWriter().encode(qr,BarcodeFormat.QR_CODE,480,480)).toComposeImageBitmap() }
                 Image(image,"Pairing QR",Modifier.size(230.dp).align(Alignment.CenterHorizontally))
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center) {
-                    OutlinedButton(onClick={ clipboard.setText(AnnotatedString(qr)); copied=true }) {
+                    OutlinedButton(onClick={
+                        Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(qr), null)
+                        copied=true
+                    }) {
                         Text(if(copied) "Link copied" else "Copy pairing link")
                     }
                 }
